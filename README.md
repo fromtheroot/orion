@@ -1,4 +1,12 @@
-# Orion
+#                  O√S                   
+#
+#  .d88b.  888d888 888  .d88b.  88888b.  
+# d88""88b 888P"   888 d88""88b 888 "88b 
+# 888  888 888     888 888  888 888  888 
+# Y88..88P 888     888 Y88..88P 888  888 
+#  "Y88P"  888     888  "Y88P"  888  888
+
+# Orion - Hybrid Reasoning
 ## Pydantic AI Web UI Agent App
 
 A modern web-based chat assistant built with **Pydantic AI**, **Ollama**, and **Streamlit**. This application provides a clean, user-friendly interface to interact with AI models running locally via Ollama.
