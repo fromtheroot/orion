@@ -1,208 +1,146 @@
-# Orion
-## Pydantic AI Web UI Agent App
+# Orion - Pydantic AI Chat Assistant with MCP Integration
 
-A modern web-based chat assistant built with **Pydantic AI**, **Ollama**, and **Streamlit**. This application provides a clean, user-friendly interface to interact with AI models running locally via Ollama.
+A powerful Streamlit-based chat interface powered by Pydantic AI and Ollama, with support for Model Context Protocol (MCP) tools.
 
-## ✨ Features
+## Features
 
-- 🦙 **Local AI Model**: Uses Ollama with qwen3:14b model for Hybrid Reasoning
-- 🔧 **Pydantic AI Framework**: Type-safe agent interactions
-- 🌊 **Web Interface**: Beautiful Streamlit-based chat UI
-- 💬 **Multi-turn Conversations**: Maintains conversation history
-- 📊 **Structured Outputs**: Uses Pydantic models for responses
-- 🔍 **Connection Checking**: Automatic Ollama server validation
-- 🎨 **Modern UI**: Clean, responsive design with sidebar controls
-- 📈 **Real-time Statistics**: Track conversation metrics
+- 🤖 **Local AI Assistant**: Runs on Ollama with qwen3:14b model
+- 🔗 **MCP Integration**: Connect to external tools and services via Model Context Protocol
+- 💭 **Thinking Process**: Visualize the AI's thinking process during responses
+- 🎯 **Customizable System Prompts**: Easily modify the AI's behavior
+- 📊 **Real-time Status**: Monitor Ollama and MCP server connections
+- 🎨 **Modern UI**: Beautiful Streamlit interface with responsive design
 
-## 🚀 Quick Start
+## Prerequisites
 
-### Prerequisites
-
-1. **Python 3.10+**
-2. **Ollama** installed and running
-3. **qwen3:14b** model downloaded
-
-### Installation
-
-1. **Clone/Navigate to the project directory**
+1. **Ollama**: Install and run Ollama with the qwen3:14b model
    ```bash
+   # Install Ollama from https://ollama.com
+   ollama serve
+   ollama pull qwen3:14b
+   ```
+
+2. **Python 3.10+**: Required for MCP support
+
+## Installation
+
+1. Clone the repository:
+   ```bash
+   git clone <your-repo-url>
    cd orion
    ```
 
-2. **Install Python dependencies**
+2. Install dependencies:
    ```bash
    pip install -r requirements.txt
    ```
 
-3. **Set up Ollama**
+3. Set up environment variables (optional for MCP):
    ```bash
-   # Install Ollama (if not already installed)
-   # Visit: https://ollama.com/download
-   
-   # Start Ollama server
-   ollama serve
-   
-   # Pull the qwen3:14b model
-   ollama pull qwen3:14b
+   cp .env.example .env
+   # Edit .env with your MCP server details
    ```
 
-### Running the Application
+## Configuration
 
-```bash
-streamlit run app.py
+### Environment Variables
+
+Create a `.env` file in the project root:
+
+```env
+# MCP Server Configuration (optional)
+MCP_SERVER_URL=https://your-mcp-server.com/sse
+MCP_BEARER_TOKEN=your_bearer_token
+
+# Optional: LLM API Keys
+# OPENAI_API_KEY=your_openai_key
+# ANTHROPIC_API_KEY=your_anthropic_key
 ```
 
-The web interface will be available at: **http://localhost:8501**
+### MCP Integration
 
-## 🔧 Configuration
+The app supports HTTP Server-Sent Events (SSE) MCP servers with bearer authentication. When configured:
 
-### Model Configuration
-You can modify the model settings in `app.py`:
+- Tools from your MCP server are automatically available to the AI
+- The AI can call external APIs, query databases, or interact with other services
+- All tool usage is transparent and shown in the chat interface
 
-```python
-self.ollama_model = OpenAIModel(
-    model_name='qwen3:14b',  # Change model here
-    provider=OpenAIProvider(base_url='http://localhost:11434/v1')
-)
-```
+## Usage
 
-### System Prompt
-Customize the agent's behavior by modifying the system prompt:
-
-```python
-system_prompt="""Your custom system prompt here..."""
-```
-
-### Web Interface Settings
-Adjust Streamlit settings in the page config:
-
-```python
-st.set_page_config(
-    page_title="🤖 Pydantic AI Chat Assistant",
-    page_icon="🤖",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-```
-
-You can also customize the app by modifying the Streamlit configuration in `.streamlit/config.toml`.
-
-## 📁 Project Structure
-
-```
-orion/
-├── app.py              # Main application file
-├── requirements.txt    # Python dependencies
-└── README.md          # This file
-```
-
-## 🛠️ Dependencies
-
-- **pydantic>=2.0.0**: Data validation and settings management
-- **pydantic-ai**: Agent framework
-- **streamlit>=1.28.0**: Web UI framework
-- **httpx**: HTTP client for connection checking
-
-## 🔍 Troubleshooting
-
-### Ollama Connection Issues
-
-1. **Server not running**
+1. Start the application:
    ```bash
-   ollama serve
+   streamlit run app.py
    ```
 
-2. **Model not found**
-   ```bash
-   ollama pull qwen3:14b
-   ```
+2. Open your browser to `http://localhost:8501`
 
-3. **Check available models**
-   ```bash
-   ollama list
-   ```
+3. Start chatting! The AI will automatically use available MCP tools when appropriate.
 
-### Common Errors
+## Features Overview
 
-- **Port 8501 in use**: Use `streamlit run app.py --server.port XXXX` to specify a different port
-- **Python version**: Ensure you're using Python 3.10+
-- **Dependencies**: Run `pip install -r requirements.txt` again
-- **Session state issues**: Clear browser cache or use incognito mode
+### System Prompt Customization
+- Modify the AI's behavior through the sidebar
+- Apply changes instantly without restarting
+- Option to clear chat history when changing prompts
 
-## 🎯 Usage Examples
+### MCP Tool Integration
+- Automatic discovery of tools from configured MCP servers
+- Seamless integration with Pydantic AI's function calling
+- Real-time status monitoring of MCP connections
 
-### Basic Chat
-Simply type your message in the chat input at the bottom and press Enter.
+### Thinking Process Visualization
+- See how the AI processes your requests
+- Collapsible thinking sections to reduce clutter
+- Clear separation between thinking and final responses
 
-### Conversation History
-The app maintains conversation context across multiple messages and displays them in a clean chat interface.
+### Connection Monitoring
+- Real-time Ollama server status
+- MCP server connection status
+- Automatic retry and error handling
 
-### Sidebar Features
-- **Connection Status**: Real-time Ollama connection monitoring
-- **Clear Chat**: Start a fresh conversation
-- **Statistics**: View message counts and conversation metrics
-- **System Info**: Check model configuration and settings
+## Troubleshooting
 
-## 🔮 Advanced Features
+### Ollama Issues
+- Ensure Ollama is running: `ollama serve`
+- Verify model is available: `ollama list`
+- Pull model if missing: `ollama pull qwen3:14b`
 
-### Structured Responses
-The agent uses Pydantic models for structured outputs:
+### MCP Issues
+- Check your MCP server URL and authentication
+- Verify the server supports SSE transport
+- Check network connectivity to the MCP server
 
-```python
-class AgentResponse(BaseModel):
-    response: str
-    confidence: Optional[float] = None
-```
+### General Issues
+- Check the sidebar for connection status
+- View browser console for detailed error messages
+- Ensure all dependencies are installed correctly
 
-### Conversation Tracking
-Messages are stored as structured objects:
+## Development
 
-```python
-class ChatMessage(BaseModel):
-    role: str
-    content: str
-```
+The application is built with:
+- **Streamlit**: Web interface framework
+- **Pydantic AI**: AI agent framework with built-in MCP support
+- **Ollama**: Local LLM runtime
+- **httpx**: HTTP client for API calls
 
-## 🤝 Contributing
+Key files:
+- `app.py`: Main application logic
+- `requirements.txt`: Python dependencies
+- `.env`: Environment configuration
+- `.gitignore`: Protects sensitive files
 
-Feel free to submit issues, feature requests, or pull requests to improve this application.
+## Contributing
 
-## 📄 License
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Test thoroughly
+5. Submit a pull request
 
-This project is open source and available under the MIT License.
+## License
 
-## 🙏 Acknowledgments
-
-- [Pydantic AI](https://ai.pydantic.dev/) - The agent framework
-- [Ollama](https://ollama.com/) - Local AI model server
-- [Streamlit](https://streamlit.io/) - Web UI framework
-- [Qwen](https://qwenlm.github.io/) - The AI model
+[Your License Here]
 
 ---
 
-## 📝 TODO
-
-- [ ] Re-do UI
-- [ ] Add dynamic reasoning using qwen3
-- [ ] Ollama fetch and pick models in sidebar, rather than pre-defined
-- [ ] Add other model providers like OpenRouter
-- [ ] Add MCP tools via n8n
-- [ ] Add user authentication and session management
-- [ ] Implement conversation persistence (database storage)
-- [ ] Add export functionality (PDF, markdown, JSON)
-- [ ] Create comprehensive test suite
-- [ ] Add conversation search and filtering
-- [ ] Implement rate limiting and usage quotas
-- [ ] Add dark/light theme toggle
-- [ ] Create mobile-responsive design
-- [ ] Add file upload and document processing capabilities
-- [ ] Implement conversation templates and prompts library
-- [ ] Add real-time typing indicators
-- [ ] Create REST API endpoints
-- [ ] Add conversation sharing and collaboration features
-- [ ] Implement plugin/extension system
-- [ ] Add performance monitoring and analytics
-- [ ] Create Docker containerization
-- [ ] Add environment-specific configuration management
-- [ ] Implement backup and restore functionality
-- [ ] Add multi-language support (i18n) 
+**Note**: This application is designed to work with your specific MCP server setup. Adjust the configuration as needed for your environment. 

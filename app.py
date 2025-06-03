@@ -1,12 +1,16 @@
 import asyncio
+import json
+import os
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 import streamlit as st
 import httpx
+from dotenv import load_dotenv
 
 from pydantic_ai import Agent
 from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.providers.openai import OpenAIProvider
+from pydantic_ai.mcp import MCPServerHTTP
 
 
 class ChatMessage(BaseModel):
@@ -23,23 +27,65 @@ class AgentResponse(BaseModel):
 class PydanticAIWebApp:
     """Main application class for the Pydantic AI Web UI"""
     
-    def __init__(self, system_prompt: Optional[str] = None):
+    def __init__(self, system_prompt: Optional[str] = None, model_name: str = 'qwen3:14b', 
+                 ollama_url: str = 'http://localhost:11434', mcp_url: Optional[str] = None, 
+                 mcp_token: Optional[str] = None):
+        # Load environment variables
+        load_dotenv()
+        
+        # Store settings
+        self.model_name = model_name
+        self.ollama_url = ollama_url
+        
         # Initialize Ollama model with OpenAI compatibility
+        ollama_base_url = f"{ollama_url}/v1"
         self.ollama_model = OpenAIModel(
-            model_name='qwen3:14b',
-            provider=OpenAIProvider(base_url='http://localhost:11434/v1')
+            model_name=model_name,
+            provider=OpenAIProvider(base_url=ollama_base_url)
         )
+        
+        # Initialize MCP server if configured (UI settings override env)
+        self.mcp_server = None
+        self.mcp_status = None
+        
+        # Use provided settings or fall back to environment variables
+        final_mcp_url = mcp_url or os.getenv('MCP_SERVER_URL')
+        final_mcp_token = mcp_token or os.getenv('MCP_BEARER_TOKEN')
+        
+        if final_mcp_url and final_mcp_token:
+            try:
+                # Create headers for bearer authentication
+                headers = {"Authorization": f"Bearer {final_mcp_token}"}
+                self.mcp_server = MCPServerHTTP(url=final_mcp_url, headers=headers)
+                self.mcp_status = "✅ MCP server configured successfully"
+            except Exception as e:
+                self.mcp_status = f"❌ MCP server configuration failed: {str(e)}"
+        else:
+            self.mcp_status = "⚠️ MCP server not configured (missing URL or token)"
         
         # Default system prompt if none provided
         default_system_prompt = """You are a helpful AI assistant powered by Pydantic AI and running on Ollama.
-            You provide accurate, helpful, and engaging responses to user questions.
-            Always be polite, informative, and concise in your responses.
-            If you're uncertain about something, acknowledge the uncertainty."""
+You provide accurate, helpful, and engaging responses to user questions.
+Always be polite, informative, and concise in your responses.
+If you're uncertain about something, acknowledge the uncertainty.
+
+You have access to external tools through MCP (Model Context Protocol) when available.
+When using tools, always explain what you're doing and what the tool returned.
+
+When responding to complex questions, feel free to show your thinking process by using phrases like:
+- "Let me think about this..."
+- "I need to consider..."
+- "First, I should..."
+- "Let me analyze..."
+
+This helps users understand your reasoning process."""
         
-        # Create the agent with custom or default system prompt
+        # Create the agent with MCP server (if available) and system prompt
+        mcp_servers = [self.mcp_server] if self.mcp_server else []
         self.agent = Agent(
             model=self.ollama_model,
-            system_prompt=system_prompt or default_system_prompt
+            system_prompt=system_prompt or default_system_prompt,
+            mcp_servers=mcp_servers
         )
         
         # Store the system prompt for reference
@@ -48,9 +94,59 @@ class PydanticAIWebApp:
     def update_system_prompt(self, new_system_prompt: str):
         """Update the system prompt and recreate the agent"""
         self.system_prompt = new_system_prompt
+        mcp_servers = [self.mcp_server] if self.mcp_server else []
         self.agent = Agent(
             model=self.ollama_model,
-            system_prompt=new_system_prompt
+            system_prompt=new_system_prompt,
+            mcp_servers=mcp_servers
+        )
+    
+    def update_settings(self, model_name: str = None, ollama_url: str = None, 
+                       mcp_url: str = None, mcp_token: str = None, system_prompt: str = None):
+        """Update any combination of settings and recreate the agent"""
+        # Update model settings if provided
+        if model_name and model_name != self.model_name:
+            self.model_name = model_name
+            
+        if ollama_url and ollama_url != self.ollama_url:
+            self.ollama_url = ollama_url
+            
+        # Recreate Ollama model if model or URL changed
+        if model_name or ollama_url:
+            ollama_base_url = f"{self.ollama_url}/v1"
+            self.ollama_model = OpenAIModel(
+                model_name=self.model_name,
+                provider=OpenAIProvider(base_url=ollama_base_url)
+            )
+        
+        # Update MCP settings if provided
+        if mcp_url is not None or mcp_token is not None:
+            # Load environment variables as fallback
+            load_dotenv()
+            final_mcp_url = mcp_url if mcp_url else os.getenv('MCP_SERVER_URL')
+            final_mcp_token = mcp_token if mcp_token else os.getenv('MCP_BEARER_TOKEN')
+            
+            self.mcp_server = None
+            if final_mcp_url and final_mcp_token:
+                try:
+                    headers = {"Authorization": f"Bearer {final_mcp_token}"}
+                    self.mcp_server = MCPServerHTTP(url=final_mcp_url, headers=headers)
+                    self.mcp_status = "✅ MCP server configured successfully"
+                except Exception as e:
+                    self.mcp_status = f"❌ MCP server configuration failed: {str(e)}"
+            else:
+                self.mcp_status = "⚠️ MCP server not configured (missing URL or token)"
+        
+        # Update system prompt if provided
+        if system_prompt:
+            self.system_prompt = system_prompt
+        
+        # Recreate agent with updated settings
+        mcp_servers = [self.mcp_server] if self.mcp_server else []
+        self.agent = Agent(
+            model=self.ollama_model,
+            system_prompt=self.system_prompt,
+            mcp_servers=mcp_servers
         )
     
     async def get_agent_response(self, message: str, conversation_history: List[ChatMessage]) -> str:
@@ -65,9 +161,15 @@ class PydanticAIWebApp:
             Response string
         """
         try:
-            # Get response from agent - no message_history for simpler approach
-            result = await self.agent.run(user_prompt=message)
-            return str(result.output)
+            # Use MCP server context if available
+            if self.mcp_server:
+                async with self.agent.run_mcp_servers():
+                    result = await self.agent.run(user_prompt=message)
+                    return str(result.output)
+            else:
+                # Get response from agent without MCP servers
+                result = await self.agent.run(user_prompt=message)
+                return str(result.output)
                 
         except Exception as e:
             return f"Sorry, I encountered an error: {str(e)}"
@@ -84,160 +186,287 @@ class PydanticAIWebApp:
             Dict with 'type' (thinking/response), 'content', and 'status'
         """
         try:
-            # Use stream for streaming responses - no message_history for now
-            async with self.agent.run_stream(user_prompt=message) as result:
-                previous_content = ""
-                thinking_content = ""
-                response_content = ""
-                in_thinking_mode = True
-                thinking_complete = False
-                
-                async for chunk in result.stream():
-                    # Get the current content
-                    if hasattr(chunk, 'response'):
-                        current_content = chunk.response
-                    else:
-                        current_content = str(chunk)
-                    
-                    # Only process new content
-                    if current_content and len(current_content) > len(previous_content):
-                        new_chunk = current_content[len(previous_content):]
-                        previous_content = current_content
+            # Use MCP server context for streaming if available
+            if self.mcp_server:
+                async with self.agent.run_mcp_servers():
+                    async with self.agent.run_stream(user_prompt=message) as result:
+                        full_content = ""
+                        thinking_phase = True
+                        thinking_content = ""
+                        response_content = ""
+                        thinking_markers_found = False
                         
-                        if new_chunk.strip():
-                            # Check for explicit thinking tags first
-                            chunk_lower = new_chunk.lower()
+                        async for chunk in result.stream():
+                            # Get the current content from chunk
+                            if hasattr(chunk, 'response'):
+                                current_content = str(chunk.response) if chunk.response else ""
+                            elif hasattr(chunk, 'content'):
+                                current_content = str(chunk.content) if chunk.content else ""
+                            else:
+                                current_content = str(chunk) if chunk else ""
                             
-                            # Track if we have explicit thinking tags in the content
-                            has_thinking_start = any(tag in (thinking_content + new_chunk).lower() for tag in ['<think>', '<thinking>'])
-                            has_thinking_end = any(tag in chunk_lower for tag in ['</think>', '</thinking>'])
-                            
-                            if in_thinking_mode:
-                                # Check if we've hit the end of thinking first
-                                if has_thinking_end:
-                                    # Found explicit end tag - need to split the content
-                                    end_tag_patterns = ['</think>', '</thinking>']
-                                    thinking_part = new_chunk
-                                    response_part = ""
+                            # Only process if we have new content
+                            if current_content and len(current_content) > len(full_content):
+                                new_chunk = current_content[len(full_content):]
+                                full_content = current_content
+                                
+                                if new_chunk.strip():
+                                    # Parse thinking tags properly
+                                    lower_content = full_content.lower()
                                     
-                                    # Find where the thinking ends
-                                    for pattern in end_tag_patterns:
-                                        if pattern in chunk_lower:
-                                            split_index = chunk_lower.find(pattern) + len(pattern)
-                                            thinking_part = new_chunk[:split_index]
-                                            response_part = new_chunk[split_index:]
-                                            break
+                                    # Check for think tags in the content
+                                    think_start = '<think>'
+                                    think_end = '</think>'
                                     
-                                    # Add thinking part
-                                    thinking_content += thinking_part
-                                    yield {
-                                        'type': 'thinking',
-                                        'content': thinking_part,
-                                        'status': 'streaming'
-                                    }
+                                    if think_start in lower_content and think_end in lower_content:
+                                        # We have complete thinking tags, parse them
+                                        start_idx = lower_content.find(think_start)
+                                        end_idx = lower_content.find(think_end)
+                                        
+                                        if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+                                            # Extract thinking content (between tags)
+                                            thinking_start_pos = start_idx + len(think_start)
+                                            extracted_thinking = full_content[thinking_start_pos:end_idx]
+                                            
+                                            # Extract response content (after end tag)
+                                            response_start_pos = end_idx + len(think_end)
+                                            extracted_response = full_content[response_start_pos:].strip()
+                                            
+                                            # If we haven't sent thinking content yet, send it all
+                                            if not thinking_content and extracted_thinking:
+                                                thinking_content = extracted_thinking
+                                                yield {
+                                                    'type': 'thinking',
+                                                    'content': extracted_thinking,
+                                                    'status': 'streaming'
+                                                }
+                                                yield {
+                                                    'type': 'thinking_complete',
+                                                    'content': '',
+                                                    'status': 'complete'
+                                                }
+                                                thinking_phase = False
+                                                thinking_markers_found = True
+                                            
+                                            # Send response content if we have any and it's new
+                                            if extracted_response and len(extracted_response) > len(response_content):
+                                                new_response_chunk = extracted_response[len(response_content):]
+                                                response_content = extracted_response
+                                                yield {
+                                                    'type': 'response',
+                                                    'content': new_response_chunk,
+                                                    'status': 'streaming'
+                                                }
+                                            continue
                                     
-                                    # Switch to response mode
-                                    in_thinking_mode = False
-                                    thinking_complete = True
-                                    yield {
-                                        'type': 'thinking_complete',
-                                        'content': '',
-                                        'status': 'complete'
-                                    }
+                                    elif think_start in lower_content and think_end not in lower_content:
+                                        # We have start tag but no end tag yet, extract thinking content so far
+                                        start_idx = lower_content.find(think_start)
+                                        if start_idx != -1:
+                                            thinking_start_pos = start_idx + len(think_start)
+                                            current_thinking = full_content[thinking_start_pos:]
+                                            
+                                            # Send new thinking content
+                                            if len(current_thinking) > len(thinking_content):
+                                                new_thinking_chunk = current_thinking[len(thinking_content):]
+                                                thinking_content = current_thinking
+                                                yield {
+                                                    'type': 'thinking',
+                                                    'content': new_thinking_chunk,
+                                                    'status': 'streaming'
+                                                }
+                                                thinking_markers_found = True
+                                            continue
                                     
-                                    # Add response part if any
-                                    if response_part.strip():
-                                        response_content += response_part
-                                        yield {
-                                            'type': 'response',
-                                            'content': response_part,
-                                            'status': 'streaming'
-                                        }
-                                else:
-                                    # Add content to thinking
-                                    thinking_content += new_chunk
-                                    
-                                if has_thinking_start and not thinking_complete and not has_thinking_end:
-                                    # We're definitely in thinking mode with explicit tags
-                                    yield {
-                                        'type': 'thinking',
-                                        'content': new_chunk,
-                                        'status': 'streaming'
-                                    }
-                                elif not has_thinking_end and not has_thinking_start:
-                                    # Use heuristic detection only if no explicit tags found
-                                    thinking_patterns = [
-                                        "let me think", "i need to", "i should", "analyzing", "considering",
-                                        "hmm", "well", "so", "first", "next", "then", "however", "but",
-                                        "the user", "they want", "they're asking", "this question"
+                                    # Fallback: if no think tags found, use natural language detection
+                                    natural_thinking_indicators = [
+                                        'let me think', 'i need to think', 'analyzing', 'considering',
+                                        'first, i should', 'let me consider', 'i should'
                                     ]
+                                    has_natural_thinking = any(marker in lower_content for marker in natural_thinking_indicators)
                                     
-                                    response_patterns = [
-                                        "hello!", "hi there", "sure!", "certainly", "of course",
-                                        "i can help", "here's", "i'll help", "absolutely",
-                                        "great question", "i'd be happy", "let me explain",
-                                        "here are", "to answer", "based on"
-                                    ]
+                                    if has_natural_thinking and not thinking_markers_found:
+                                        thinking_markers_found = True
                                     
-                                    # Check if we're transitioning to response mode
-                                    starts_with_response = any(
-                                        chunk_lower.strip().startswith(pattern.split()[0]) and pattern in chunk_lower 
-                                        for pattern in response_patterns
-                                    )
-                                    
-                                    has_response_pattern = any(pattern in chunk_lower for pattern in response_patterns)
-                                    
-                                    # Length-based heuristic for formal responses
-                                    is_formal_response = (
-                                        len(thinking_content) > 100 and 
-                                        (chunk_lower.strip().startswith(('i', 'to', 'the', 'this', 'that', 'based', 'according')) or
-                                         '.' in new_chunk and len(new_chunk.split('.')) > 1)
-                                    )
-                                    
-                                    if starts_with_response or (has_response_pattern and len(thinking_content) > 50) or is_formal_response:
-                                        in_thinking_mode = False
-                                        thinking_complete = True
+                                    # Another fallback: if we haven't found any thinking markers and have enough content
+                                    if not thinking_markers_found and thinking_phase and len(full_content) > 150:
+                                        thinking_phase = False
                                         yield {
                                             'type': 'thinking_complete',
                                             'content': '',
                                             'status': 'complete'
                                         }
-                                        # This chunk becomes part of response
+                                    
+                                    # Emit the appropriate chunk type for fallback cases
+                                    if thinking_phase and not thinking_markers_found:
+                                        thinking_content += new_chunk
+                                        yield {
+                                            'type': 'thinking',
+                                            'content': new_chunk,
+                                            'status': 'streaming'
+                                        }
+                                    elif not thinking_markers_found:
                                         response_content += new_chunk
                                         yield {
                                             'type': 'response',
                                             'content': new_chunk,
                                             'status': 'streaming'
                                         }
-                                    else:
-                                        # Still thinking
-                                        yield {
-                                            'type': 'thinking',
-                                            'content': new_chunk,
-                                            'status': 'streaming'
-                                        }
-                            else:
-                                # We're in response mode
-                                response_content += new_chunk
-                                yield {
-                                    'type': 'response',
-                                    'content': new_chunk,
-                                    'status': 'streaming'
-                                }
-                
-                # Mark completion
-                if not thinking_complete:
+                        
+                        # Ensure thinking is marked complete if it wasn't already
+                        if thinking_phase:
+                            yield {
+                                'type': 'thinking_complete',
+                                'content': '',
+                                'status': 'complete'
+                            }
+                        
+                        # Mark final completion
+                        yield {
+                            'type': 'response_complete',
+                            'content': '',
+                            'status': 'complete'
+                        }
+            else:
+                # No MCP server - same logic but without MCP context
+                async with self.agent.run_stream(user_prompt=message) as result:
+                    full_content = ""
+                    thinking_phase = True
+                    thinking_content = ""
+                    response_content = ""
+                    thinking_markers_found = False
+                    
+                    async for chunk in result.stream():
+                        # Get the current content from chunk
+                        if hasattr(chunk, 'response'):
+                            current_content = str(chunk.response) if chunk.response else ""
+                        elif hasattr(chunk, 'content'):
+                            current_content = str(chunk.content) if chunk.content else ""
+                        else:
+                            current_content = str(chunk) if chunk else ""
+                        
+                        # Only process if we have new content
+                        if current_content and len(current_content) > len(full_content):
+                            new_chunk = current_content[len(full_content):]
+                            full_content = current_content
+                            
+                            if new_chunk.strip():
+                                # Parse thinking tags properly
+                                lower_content = full_content.lower()
+                                
+                                # Check for think tags in the content
+                                think_start = '<think>'
+                                think_end = '</think>'
+                                
+                                if think_start in lower_content and think_end in lower_content:
+                                    # We have complete thinking tags, parse them
+                                    start_idx = lower_content.find(think_start)
+                                    end_idx = lower_content.find(think_end)
+                                    
+                                    if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+                                        # Extract thinking content (between tags)
+                                        thinking_start_pos = start_idx + len(think_start)
+                                        extracted_thinking = full_content[thinking_start_pos:end_idx]
+                                        
+                                        # Extract response content (after end tag)
+                                        response_start_pos = end_idx + len(think_end)
+                                        extracted_response = full_content[response_start_pos:].strip()
+                                        
+                                        # If we haven't sent thinking content yet, send it all
+                                        if not thinking_content and extracted_thinking:
+                                            thinking_content = extracted_thinking
+                                            yield {
+                                                'type': 'thinking',
+                                                'content': extracted_thinking,
+                                                'status': 'streaming'
+                                            }
+                                            yield {
+                                                'type': 'thinking_complete',
+                                                'content': '',
+                                                'status': 'complete'
+                                            }
+                                            thinking_phase = False
+                                            thinking_markers_found = True
+                                        
+                                        # Send response content if we have any and it's new
+                                        if extracted_response and len(extracted_response) > len(response_content):
+                                            new_response_chunk = extracted_response[len(response_content):]
+                                            response_content = extracted_response
+                                            yield {
+                                                'type': 'response',
+                                                'content': new_response_chunk,
+                                                'status': 'streaming'
+                                            }
+                                        continue
+                                
+                                elif think_start in lower_content and think_end not in lower_content:
+                                    # We have start tag but no end tag yet, extract thinking content so far
+                                    start_idx = lower_content.find(think_start)
+                                    if start_idx != -1:
+                                        thinking_start_pos = start_idx + len(think_start)
+                                        current_thinking = full_content[thinking_start_pos:]
+                                        
+                                        # Send new thinking content
+                                        if len(current_thinking) > len(thinking_content):
+                                            new_thinking_chunk = current_thinking[len(thinking_content):]
+                                            thinking_content = current_thinking
+                                            yield {
+                                                'type': 'thinking',
+                                                'content': new_thinking_chunk,
+                                                'status': 'streaming'
+                                            }
+                                            thinking_markers_found = True
+                                        continue
+                                
+                                # Fallback: if no think tags found, use natural language detection
+                                natural_thinking_indicators = [
+                                    'let me think', 'i need to think', 'analyzing', 'considering',
+                                    'first, i should', 'let me consider', 'i should'
+                                ]
+                                has_natural_thinking = any(marker in lower_content for marker in natural_thinking_indicators)
+                                
+                                if has_natural_thinking and not thinking_markers_found:
+                                    thinking_markers_found = True
+                                
+                                # Another fallback: if we haven't found any thinking markers and have enough content
+                                if not thinking_markers_found and thinking_phase and len(full_content) > 150:
+                                    thinking_phase = False
+                                    yield {
+                                        'type': 'thinking_complete',
+                                        'content': '',
+                                        'status': 'complete'
+                                    }
+                                
+                                # Emit the appropriate chunk type for fallback cases
+                                if thinking_phase and not thinking_markers_found:
+                                    thinking_content += new_chunk
+                                    yield {
+                                        'type': 'thinking',
+                                        'content': new_chunk,
+                                        'status': 'streaming'
+                                    }
+                                elif not thinking_markers_found:
+                                    response_content += new_chunk
+                                    yield {
+                                        'type': 'response',
+                                        'content': new_chunk,
+                                        'status': 'streaming'
+                                    }
+                    
+                    # Ensure thinking is marked complete if it wasn't already
+                    if thinking_phase:
+                        yield {
+                            'type': 'thinking_complete',
+                            'content': '',
+                            'status': 'complete'
+                        }
+                    
+                    # Mark final completion
                     yield {
-                        'type': 'thinking_complete',
+                        'type': 'response_complete',
                         'content': '',
                         'status': 'complete'
                     }
-                    
-                yield {
-                    'type': 'response_complete',
-                    'content': '',
-                    'status': 'complete'
-                }
                         
         except Exception as e:
             yield {
@@ -247,18 +476,82 @@ class PydanticAIWebApp:
             }
 
 
-def check_ollama_connection():
-    """Check if Ollama server is running and model is available"""
+def save_settings_to_file(settings: Dict[str, Any], filename: str = "orion_settings.json"):
+    """Save settings to a JSON file"""
     try:
-        response = httpx.get("http://localhost:11434/api/tags", timeout=5)
+        with open(filename, 'w') as f:
+            json.dump(settings, f, indent=2)
+        return True
+    except Exception as e:
+        st.error(f"Failed to save settings: {e}")
+        return False
+
+
+def load_settings_from_file(filename: str = "orion_settings.json") -> Dict[str, Any]:
+    """Load settings from a JSON file"""
+    default_settings = {
+        "ollama_model": "qwen3:14b",
+        "ollama_url": "http://localhost:11434",
+        "mcp_url": "",
+        "mcp_token": "",
+        "system_prompt": """You are a helpful AI assistant powered by Pydantic AI and running on Ollama.
+You provide accurate, helpful, and engaging responses to user questions.
+Always be polite, informative, and concise in your responses.
+If you're uncertain about something, acknowledge the uncertainty.
+
+You have access to external tools through MCP (Model Context Protocol) when available.
+When using tools, always explain what you're doing and what the tool returned.
+
+When responding to complex questions, feel free to show your thinking process by using phrases like:
+- "Let me think about this..."
+- "I need to consider..."
+- "First, I should..."
+- "Let me analyze..."
+
+This helps users understand your reasoning process."""
+    }
+    
+    try:
+        if os.path.exists(filename):
+            with open(filename, 'r') as f:
+                saved_settings = json.load(f)
+            # Merge with defaults to handle missing keys
+            for key, default_value in default_settings.items():
+                if key not in saved_settings:
+                    saved_settings[key] = default_value
+            return saved_settings
+        else:
+            return default_settings
+    except Exception as e:
+        st.warning(f"Failed to load settings file, using defaults: {e}")
+        return default_settings
+
+
+def get_available_ollama_models(server_url: str = "http://localhost:11434"):
+    """Get list of available Ollama models"""
+    try:
+        response = httpx.get(f"{server_url}/api/tags", timeout=5)
         if response.status_code == 200:
             models = response.json().get("models", [])
-            qwen_models = [m for m in models if "qwen3" in m.get("name", "").lower()]
+            return [model.get("name", "") for model in models if model.get("name")]
+        else:
+            return []
+    except Exception:
+        return []
+
+
+def check_ollama_connection(server_url: str = "http://localhost:11434", model_name: str = "qwen3:14b"):
+    """Check if Ollama server is running and model is available"""
+    try:
+        response = httpx.get(f"{server_url}/api/tags", timeout=5)
+        if response.status_code == 200:
+            models = response.json().get("models", [])
+            model_names = [m.get("name", "") for m in models]
             
-            if qwen_models:
-                return True, "✅ Ollama server is running and qwen3 model is available!"
+            if model_name in model_names:
+                return True, f"✅ Ollama server is running and {model_name} model is available!"
             else:
-                return False, "⚠️ Ollama server is running but qwen3:14b model not found. Run: `ollama pull qwen3:14b`"
+                return False, f"⚠️ Ollama server is running but {model_name} model not found. Available models: {', '.join(model_names[:3])}{'...' if len(model_names) > 3 else ''}"
         else:
             return False, "❌ Ollama server is not responding properly"
             
@@ -349,14 +642,37 @@ def initialize_session_state():
     """Initialize Streamlit session state variables"""
     if "messages" not in st.session_state:
         st.session_state.messages = []
-    if "system_prompt" not in st.session_state:
-        # Default system prompt
-        st.session_state.system_prompt = """You are a helpful AI assistant powered by Pydantic AI and running on Ollama.
-You provide accurate, helpful, and engaging responses to user questions.
-Always be polite, informative, and concise in your responses.
-If you're uncertain about something, acknowledge the uncertainty."""
+    
+    # Load settings from file (this will initialize all settings)
+    if "settings_loaded" not in st.session_state:
+        saved_settings = load_settings_from_file()
+        
+        # Initialize all settings from saved file or defaults
+        st.session_state.system_prompt = saved_settings["system_prompt"]
+        st.session_state.ollama_model = saved_settings["ollama_model"]
+        st.session_state.ollama_url = saved_settings["ollama_url"]
+        
+        # For MCP settings, prefer saved settings, but fall back to env vars if saved settings are empty
+        st.session_state.mcp_url = saved_settings["mcp_url"] or os.getenv('MCP_SERVER_URL', '')
+        st.session_state.mcp_token = saved_settings["mcp_token"] or os.getenv('MCP_BEARER_TOKEN', '')
+        
+        st.session_state.settings_loaded = True
+    
+    # Runtime-only settings (not persisted)
+    if "available_models" not in st.session_state:
+        st.session_state.available_models = []
+    
+    # App instance
     if "app" not in st.session_state:
-        st.session_state.app = PydanticAIWebApp(st.session_state.system_prompt)
+        st.session_state.app = PydanticAIWebApp(
+            system_prompt=st.session_state.system_prompt,
+            model_name=st.session_state.ollama_model,
+            ollama_url=st.session_state.ollama_url,
+            mcp_url=st.session_state.mcp_url,
+            mcp_token=st.session_state.mcp_token
+        )
+    
+    # Connection tracking
     if "connection_checked" not in st.session_state:
         st.session_state.connection_checked = False
     if "connection_status" not in st.session_state:
@@ -503,7 +819,10 @@ def main():
         # Connection status
         if not st.session_state.connection_checked:
             with st.spinner("Checking Ollama connection..."):
-                is_connected, status_message = check_ollama_connection()
+                is_connected, status_message = check_ollama_connection(
+                    server_url=st.session_state.ollama_url,
+                    model_name=st.session_state.ollama_model
+                )
                 st.session_state.connection_status = (is_connected, status_message)
                 st.session_state.connection_checked = True
         
@@ -513,12 +832,121 @@ def main():
             st.success(status_message)
         else:
             st.error(status_message)
-            st.markdown("""
+            st.markdown(f"""
             **Setup Steps:**
             1. Install Ollama: [ollama.com](https://ollama.com)
             2. Start server: `ollama serve`
-            3. Pull model: `ollama pull qwen3:14b`
+            3. Pull model: `ollama pull {st.session_state.ollama_model}`
+            4. Check server URL: {st.session_state.ollama_url}
             """)
+        
+        st.divider()
+        
+        # Ollama Configuration
+        st.subheader("🤖 Ollama Configuration")
+        
+        # Ollama URL
+        ollama_url_input = st.text_input(
+            "Ollama Server URL:",
+            value=st.session_state.ollama_url,
+            help="URL of your Ollama server",
+            key="ollama_url_input"
+        )
+        
+        # Refresh models button and model selection
+        col1, col2 = st.columns([2, 1])
+        with col2:
+            refresh_models = st.button("🔄 Refresh", use_container_width=True, key="refresh_models_btn")
+        
+        # Get available models
+        if refresh_models or not st.session_state.available_models:
+            with st.spinner("Loading available models..."):
+                st.session_state.available_models = get_available_ollama_models(ollama_url_input)
+        
+        with col1:
+            if st.session_state.available_models:
+                # Find current model in list or use first available
+                current_model_index = 0
+                if st.session_state.ollama_model in st.session_state.available_models:
+                    current_model_index = st.session_state.available_models.index(st.session_state.ollama_model)
+                
+                ollama_model_input = st.selectbox(
+                    "Model:",
+                    options=st.session_state.available_models,
+                    index=current_model_index,
+                    help="Select an available Ollama model",
+                    key="ollama_model_input"
+                )
+            else:
+                ollama_model_input = st.text_input(
+                    "Model:",
+                    value=st.session_state.ollama_model,
+                    help="Model name (couldn't load available models)",
+                    key="ollama_model_input_fallback"
+                )
+        
+        st.divider()
+        
+        # MCP Configuration
+        st.subheader("🔗 MCP Configuration")
+        
+        mcp_url_input = st.text_input(
+            "MCP Server URL:",
+            value=st.session_state.mcp_url,
+            help="URL of your MCP server (optional)",
+            key="mcp_url_input"
+        )
+        
+        mcp_token_input = st.text_input(
+            "MCP Bearer Token:",
+            value=st.session_state.mcp_token,
+            type="password",
+            help="Bearer token for MCP authentication (optional)",
+            key="mcp_token_input"
+        )
+        
+        # Apply Settings Button
+        settings_changed = (
+            ollama_url_input != st.session_state.ollama_url or
+            (st.session_state.available_models and ollama_model_input != st.session_state.ollama_model) or
+            (not st.session_state.available_models and ollama_model_input != st.session_state.ollama_model) or
+            mcp_url_input != st.session_state.mcp_url or
+            mcp_token_input != st.session_state.mcp_token
+        )
+        
+        if st.button("🚀 Apply Settings", use_container_width=True, type="primary", disabled=not settings_changed, key="apply_settings_btn"):
+            # Update session state
+            st.session_state.ollama_url = ollama_url_input
+            if st.session_state.available_models:
+                st.session_state.ollama_model = ollama_model_input
+            else:
+                st.session_state.ollama_model = ollama_model_input
+            st.session_state.mcp_url = mcp_url_input
+            st.session_state.mcp_token = mcp_token_input
+            
+            # Save settings to file for persistence
+            settings_to_save = {
+                "ollama_model": st.session_state.ollama_model,
+                "ollama_url": st.session_state.ollama_url,
+                "mcp_url": st.session_state.mcp_url,
+                "mcp_token": st.session_state.mcp_token,
+                "system_prompt": st.session_state.system_prompt
+            }
+            save_settings_to_file(settings_to_save)
+            
+            # Update the app instance
+            st.session_state.app.update_settings(
+                model_name=st.session_state.ollama_model,
+                ollama_url=st.session_state.ollama_url,
+                mcp_url=st.session_state.mcp_url,
+                mcp_token=st.session_state.mcp_token
+            )
+            
+            # Force connection recheck
+            st.session_state.connection_checked = False
+            
+            st.success("✅ Settings updated and saved successfully!")
+            st.rerun()
         
         st.divider()
         
@@ -547,9 +975,20 @@ def main():
             if apply_clicked:
                 if system_prompt_draft.strip() != st.session_state.system_prompt.strip():
                     st.session_state.system_prompt = system_prompt_draft.strip()
+                    
+                    # Save settings to file for persistence
+                    settings_to_save = {
+                        "ollama_model": st.session_state.ollama_model,
+                        "ollama_url": st.session_state.ollama_url,
+                        "mcp_url": st.session_state.mcp_url,
+                        "mcp_token": st.session_state.mcp_token,
+                        "system_prompt": st.session_state.system_prompt
+                    }
+                    save_settings_to_file(settings_to_save)
+                    
                     # Use the update method to ensure proper agent recreation
                     st.session_state.app.update_system_prompt(system_prompt_draft.strip())
-                    st.success("✅ System prompt updated and applied!")
+                    st.success("✅ System prompt updated and saved!")
                     # Clear messages to start fresh with new prompt
                     if clear_history:
                         st.session_state.messages = []
@@ -563,24 +1002,71 @@ def main():
             default_prompt = """You are a helpful AI assistant powered by Pydantic AI and running on Ollama.
 You provide accurate, helpful, and engaging responses to user questions.
 Always be polite, informative, and concise in your responses.
-If you're uncertain about something, acknowledge the uncertainty."""
+If you're uncertain about something, acknowledge the uncertainty.
+
+You have access to external tools through MCP (Model Context Protocol) when available.
+When using tools, always explain what you're doing and what the tool returned.
+
+When responding to complex questions, feel free to show your thinking process by using phrases like:
+- "Let me think about this..."
+- "I need to consider..."
+- "First, I should..."
+- "Let me analyze..."
+
+This helps users understand your reasoning process."""
             
             if st.button("🔄 Reset", use_container_width=True):
                 st.session_state.system_prompt = default_prompt
+                
+                # Save settings to file for persistence
+                settings_to_save = {
+                    "ollama_model": st.session_state.ollama_model,
+                    "ollama_url": st.session_state.ollama_url,
+                    "mcp_url": st.session_state.mcp_url,
+                    "mcp_token": st.session_state.mcp_token,
+                    "system_prompt": st.session_state.system_prompt
+                }
+                save_settings_to_file(settings_to_save)
+                
                 st.session_state.app.update_system_prompt(default_prompt)
                 st.session_state.messages = []  # Clear history when resetting
                 st.rerun()
         
         st.divider()
         
+        # MCP Server Status
+        st.subheader("🔗 MCP Integration")
+        if hasattr(st.session_state.app, 'mcp_status'):
+            if "✅" in st.session_state.app.mcp_status:
+                st.success(st.session_state.app.mcp_status)
+            elif "❌" in st.session_state.app.mcp_status:
+                st.error(st.session_state.app.mcp_status)
+            else:
+                st.warning(st.session_state.app.mcp_status)
+        
+        st.divider()
+        
         # Model info
+        settings_file_exists = os.path.exists("orion_settings.json")
+        settings_info = ""
+        if settings_file_exists:
+            try:
+                import time
+                mtime = os.path.getmtime("orion_settings.json")
+                settings_info = f"\n- **Settings**: Saved {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(mtime))}"
+            except:
+                settings_info = "\n- **Settings**: File exists"
+        else:
+            settings_info = "\n- **Settings**: Using defaults (not saved yet)"
+            
         st.markdown(f"""
-        **Configuration:**
-        - **Model**: qwen3:14b via Ollama
+        **Current Configuration:**
+        - **Model**: {st.session_state.ollama_model} via Ollama
         - **Framework**: Pydantic AI
-        - **Base URL**: http://localhost:11434/v1
+        - **Ollama URL**: {st.session_state.ollama_url}/v1
+        - **MCP Server**: {'Connected' if st.session_state.app.mcp_server else 'Not configured'}
         - **Output Type**: Structured (AgentResponse)
-        - **System Prompt**: {len(st.session_state.system_prompt)} characters
+        - **System Prompt**: {len(st.session_state.system_prompt)} characters{settings_info}
         """)
         
         st.divider()
@@ -590,6 +1076,8 @@ If you're uncertain about something, acknowledge the uncertainty."""
         
         if st.button("🔄 Check Connection", use_container_width=True):
             st.session_state.connection_checked = False
+            # Also refresh available models when checking connection
+            st.session_state.available_models = get_available_ollama_models(st.session_state.ollama_url)
             st.rerun()
         
         if st.button("🗑️ Clear Chat", use_container_width=True):
@@ -700,44 +1188,49 @@ If you're uncertain about something, acknowledge the uncertainty."""
                                 # Update spinner animation in expander title, but not too frequently
                                 update_frequency += 1
                                 
-                                if update_frequency % 3 == 0:  # Update title every 3rd chunk
+                                if update_frequency % 5 == 0:  # Update title every 5th chunk to reduce flicker
                                     spinner_index = (spinner_index + 1) % len(spinner_chars)
                                     current_spinner = spinner_chars[spinner_index]
                                     current_expander_title = f"{current_spinner} Thinking..."
                                     
-                                    # Update expander with new title
+                                    # Update expander with new title and content
                                     with thinking_expander_container.container():
                                         thinking_expander = st.expander(current_expander_title, expanded=True)
                                         thinking_placeholder = thinking_expander.empty()
                                         thinking_placeholder.markdown(thinking_content + "▌")
-                                else:
+                                elif thinking_placeholder:
                                     # Just update content without changing title
-                                    if thinking_placeholder:
+                                    thinking_placeholder.markdown(thinking_content + "▌")
+                                elif thinking_content.strip():
+                                    # Initialize thinking expander if it doesn't exist yet
+                                    with thinking_expander_container.container():
+                                        thinking_expander = st.expander(current_expander_title, expanded=True)
+                                        thinking_placeholder = thinking_expander.empty()
                                         thinking_placeholder.markdown(thinking_content + "▌")
                                 
                             elif chunk_type == 'thinking_complete':
                                 thinking_active = False
-                                current_expander_title = "✅ Thinking complete - View process"
+                                current_expander_title = "💭 View thinking process"
                                 
                                 # Update to completion title and collapse automatically
                                 with thinking_expander_container.container():
                                     thinking_expander = st.expander(current_expander_title, expanded=False)
                                     thinking_placeholder = thinking_expander.empty()
-                                    if thinking_content:
+                                    if thinking_content.strip():
                                         thinking_placeholder.markdown(thinking_content)
                                     else:
-                                        thinking_placeholder.markdown("*No explicit thinking process captured*")
+                                        thinking_placeholder.markdown("*The AI processed your request directly without explicit thinking steps*")
                                 
                             elif chunk_type == 'response':
+                                # Ensure thinking is properly closed before starting response
                                 if thinking_active:
-                                    # If we get response content while still thinking, mark thinking as complete
                                     thinking_active = False
-                                    current_expander_title = "✅ Thinking complete - View process"
+                                    current_expander_title = "💭 View thinking process"
                                     
                                     with thinking_expander_container.container():
                                         thinking_expander = st.expander(current_expander_title, expanded=False)
                                         thinking_placeholder = thinking_expander.empty()
-                                        if thinking_content:
+                                        if thinking_content.strip():
                                             thinking_placeholder.markdown(thinking_content)
                                         else:
                                             thinking_placeholder.markdown("*Processing complete*")
@@ -746,8 +1239,11 @@ If you're uncertain about something, acknowledge the uncertainty."""
                                 response_placeholder.markdown(response_content + "▌")
                                 
                             elif chunk_type == 'response_complete':
+                                # Remove the cursor from final response
                                 if response_content:
                                     response_placeholder.markdown(response_content)
+                                else:
+                                    response_placeholder.markdown("*No response generated*")
                                 
                             elif chunk_type == 'error':
                                 response_placeholder.error(chunk_content)
@@ -758,8 +1254,9 @@ If you're uncertain about something, acknowledge the uncertainty."""
                     # Run the streaming function
                     final_response = asyncio.run(stream_response())
                     
-                    # Fallback to non-streaming if no response received
-                    if not final_response.strip():
+                    # Fallback to non-streaming if no response received or if response seems incomplete
+                    if not final_response or not final_response.strip() or len(final_response.strip()) < 10:
+                        st.warning("⚠️ Streaming response was incomplete, using fallback method...")
                         fallback_response = asyncio.run(
                             st.session_state.app.get_agent_response(prompt, conversation_history)
                         )
@@ -768,7 +1265,7 @@ If you're uncertain about something, acknowledge the uncertainty."""
                         with thinking_expander_container.container():
                             thinking_expander = st.expander("⚡ Used fallback method", expanded=False)
                             thinking_placeholder = thinking_expander.empty()
-                            thinking_placeholder.markdown("*Used fallback response method*")
+                            thinking_placeholder.markdown("*Streaming was incomplete, used non-streaming fallback*")
                         
                         response_placeholder.markdown(fallback_response)
                         final_response = fallback_response
