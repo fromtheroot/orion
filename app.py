@@ -641,9 +641,9 @@ If you're uncertain about something, acknowledge the uncertainty."""
                                 thinking_active = False
                                 current_expander_title = "✅ Thinking complete - View process"
                                 
-                                # Update to completion title
+                                # Update to completion title and collapse automatically
                                 with thinking_expander_container.container():
-                                    thinking_expander = st.expander(current_expander_title, expanded=True)
+                                    thinking_expander = st.expander(current_expander_title, expanded=False)
                                     thinking_placeholder = thinking_expander.empty()
                                     if thinking_content:
                                         thinking_placeholder.markdown(thinking_content)
@@ -657,7 +657,7 @@ If you're uncertain about something, acknowledge the uncertainty."""
                                     current_expander_title = "✅ Thinking complete - View process"
                                     
                                     with thinking_expander_container.container():
-                                        thinking_expander = st.expander(current_expander_title, expanded=True)
+                                        thinking_expander = st.expander(current_expander_title, expanded=False)
                                         thinking_placeholder = thinking_expander.empty()
                                         if thinking_content:
                                             thinking_placeholder.markdown(thinking_content)
@@ -688,7 +688,7 @@ If you're uncertain about something, acknowledge the uncertainty."""
                         
                         # Update expander title and content for fallback method
                         with thinking_expander_container.container():
-                            thinking_expander = st.expander("⚡ Used fallback method", expanded=True)
+                            thinking_expander = st.expander("⚡ Used fallback method", expanded=False)
                             thinking_placeholder = thinking_expander.empty()
                             thinking_placeholder.markdown("*Used fallback response method*")
                         
