@@ -266,6 +266,85 @@ def check_ollama_connection():
         return False, f"❌ Cannot connect to Ollama server: {e}. Make sure Ollama is running: `ollama serve`"
 
 
+def auto_focus_chat_input():
+    """Inject JavaScript to auto-focus the chat input"""
+    st.markdown("""
+    <script>
+    // Auto-focus chat input - more aggressive approach
+    (function() {
+        let focusAttempts = 0;
+        const maxAttempts = 100;
+        
+        function tryFocusInput() {
+            if (focusAttempts >= maxAttempts) {
+                console.log('Max focus attempts reached');
+                return;
+            }
+            
+            // Try multiple selectors
+            const selectors = [
+                'textarea[data-testid="stChatInputTextArea"]',
+                'textarea[placeholder="Type your message here..."]',
+                'textarea[aria-label="Type your message here..."]',
+                'textarea[placeholder*="message"]',
+                'div[data-testid="stChatInput"] textarea'
+            ];
+            
+            for (let selector of selectors) {
+                const input = document.querySelector(selector);
+                if (input && input.offsetParent !== null) { // Check if element is visible
+                    input.focus();
+                    input.click(); // Also trigger click in case focus alone doesn't work
+                    console.log('Successfully focused with selector:', selector);
+                    return true;
+                }
+            }
+            
+            focusAttempts++;
+            setTimeout(tryFocusInput, 50); // Try again in 50ms
+            return false;
+        }
+        
+        // Start trying immediately
+        tryFocusInput();
+        
+        // Try again when DOM changes
+        const observer = new MutationObserver(function(mutations) {
+            mutations.forEach(function(mutation) {
+                if (mutation.addedNodes.length > 0) {
+                    setTimeout(tryFocusInput, 10);
+                }
+            });
+        });
+        
+        observer.observe(document.body, {
+            childList: true,
+            subtree: true
+        });
+        
+        // Also try when document is ready and loaded
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', tryFocusInput);
+        } else {
+            tryFocusInput();
+        }
+        
+        window.addEventListener('load', tryFocusInput);
+        
+        // Try every second for the first 10 seconds as a fallback
+        let intervalCount = 0;
+        const focusInterval = setInterval(function() {
+            tryFocusInput();
+            intervalCount++;
+            if (intervalCount >= 20) { // Stop after 10 seconds
+                clearInterval(focusInterval);
+            }
+        }, 500);
+    })();
+    </script>
+    """, unsafe_allow_html=True)
+
+
 def initialize_session_state():
     """Initialize Streamlit session state variables"""
     if "messages" not in st.session_state:
@@ -292,7 +371,7 @@ def main():
         page_title="🤖 Pydantic AI Chat Assistant",
         page_icon="🤖",
         layout="wide",
-        initial_sidebar_state="expanded"
+        initial_sidebar_state="collapsed"
     )
     
     # Initialize session state
@@ -410,13 +489,12 @@ def main():
         100% { content: '⠇'; }
     }
     </style>
+    
+
     """, unsafe_allow_html=True)
     
     # Header
     st.title("Orion")
-    st.markdown("""
-    **Powered by [Synthetic](https://syntheticlabs.xyz)**
-    """)
     
     # Sidebar
     with st.sidebar:
@@ -711,6 +789,9 @@ If you're uncertain about something, acknowledge the uncertainty."""
                         "role": "assistant", 
                         "content": error_message
                     })
+
+    # Auto-focus the chat input after all UI elements are rendered
+    auto_focus_chat_input()
 
 
 if __name__ == "__main__":
