@@ -596,18 +596,21 @@ If you're uncertain about something, acknowledge the uncertainty."""
                     spinner_chars = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
                     spinner_index = 0
                     
-                    # Show initial thinking indicator in expander header
+                    # Create containers for thinking and response
                     with thinking_container:
                         thinking_expander_container = st.empty()
-                        thinking_expander = thinking_expander_container.expander(f"{spinner_chars[0]} Thinking...", expanded=False)
-                        thinking_placeholder = thinking_expander.empty()
                     
                     with response_container:
                         response_placeholder = st.empty()
                     
+                    # Current expander state tracking
+                    current_expander_title = f"{spinner_chars[0]} Thinking..."
+                    thinking_placeholder = None
+                    update_frequency = 0  # Update title every few chunks to reduce flicker
+                    
                     # Get streaming response with thinking separation
                     async def stream_response():
-                        nonlocal thinking_content, response_content, thinking_active, thinking_placeholder, thinking_expander_container, spinner_index
+                        nonlocal thinking_content, response_content, thinking_active, thinking_expander_container, spinner_index, current_expander_title, thinking_placeholder, update_frequency
                         
                         async for chunk_data in st.session_state.app.get_streaming_response(prompt, conversation_history):
                             chunk_type = chunk_data.get('type', 'response')
@@ -616,34 +619,50 @@ If you're uncertain about something, acknowledge the uncertainty."""
                             
                             if chunk_type == 'thinking':
                                 thinking_content += chunk_content
-                                # Animate spinner in expander header
-                                spinner_index = (spinner_index + 1) % len(spinner_chars)
-                                current_spinner = spinner_chars[spinner_index]
-                                thinking_expander = thinking_expander_container.expander(f"{current_spinner} Thinking...", expanded=False)
-                                thinking_placeholder = thinking_expander.empty()
-                                thinking_placeholder.markdown(thinking_content + "▌")
+                                # Update spinner animation in expander title, but not too frequently
+                                update_frequency += 1
+                                
+                                if update_frequency % 3 == 0:  # Update title every 3rd chunk
+                                    spinner_index = (spinner_index + 1) % len(spinner_chars)
+                                    current_spinner = spinner_chars[spinner_index]
+                                    current_expander_title = f"{current_spinner} Thinking..."
+                                    
+                                    # Update expander with new title
+                                    with thinking_expander_container.container():
+                                        thinking_expander = st.expander(current_expander_title, expanded=True)
+                                        thinking_placeholder = thinking_expander.empty()
+                                        thinking_placeholder.markdown(thinking_content + "▌")
+                                else:
+                                    # Just update content without changing title
+                                    if thinking_placeholder:
+                                        thinking_placeholder.markdown(thinking_content + "▌")
                                 
                             elif chunk_type == 'thinking_complete':
                                 thinking_active = False
-                                # Update expander title to show completion
-                                thinking_expander = thinking_expander_container.expander("💭 View thinking process", expanded=False)
-                                thinking_placeholder = thinking_expander.empty()
-                                if thinking_content:
-                                    thinking_placeholder.markdown(thinking_content)
-                                else:
-                                    thinking_placeholder.markdown("*No explicit thinking process captured*")
+                                current_expander_title = "✅ Thinking complete - View process"
+                                
+                                # Update to completion title
+                                with thinking_expander_container.container():
+                                    thinking_expander = st.expander(current_expander_title, expanded=True)
+                                    thinking_placeholder = thinking_expander.empty()
+                                    if thinking_content:
+                                        thinking_placeholder.markdown(thinking_content)
+                                    else:
+                                        thinking_placeholder.markdown("*No explicit thinking process captured*")
                                 
                             elif chunk_type == 'response':
                                 if thinking_active:
                                     # If we get response content while still thinking, mark thinking as complete
                                     thinking_active = False
-                                    # Update expander title to show completion
-                                    thinking_expander = thinking_expander_container.expander("💭 View thinking process", expanded=False)
-                                    thinking_placeholder = thinking_expander.empty()
-                                    if thinking_content:
-                                        thinking_placeholder.markdown(thinking_content)
-                                    else:
-                                        thinking_placeholder.markdown("*Processing complete*")
+                                    current_expander_title = "✅ Thinking complete - View process"
+                                    
+                                    with thinking_expander_container.container():
+                                        thinking_expander = st.expander(current_expander_title, expanded=True)
+                                        thinking_placeholder = thinking_expander.empty()
+                                        if thinking_content:
+                                            thinking_placeholder.markdown(thinking_content)
+                                        else:
+                                            thinking_placeholder.markdown("*Processing complete*")
                                 
                                 response_content += chunk_content
                                 response_placeholder.markdown(response_content + "▌")
@@ -667,10 +686,12 @@ If you're uncertain about something, acknowledge the uncertainty."""
                             st.session_state.app.get_agent_response(prompt, conversation_history)
                         )
                         
-                        # Update expander title and content for fallback
-                        thinking_expander = thinking_expander_container.expander("💭 View thinking process", expanded=False)
-                        thinking_placeholder = thinking_expander.empty()
-                        thinking_placeholder.markdown("*Used fallback response method*")
+                        # Update expander title and content for fallback method
+                        with thinking_expander_container.container():
+                            thinking_expander = st.expander("⚡ Used fallback method", expanded=True)
+                            thinking_placeholder = thinking_expander.empty()
+                            thinking_placeholder.markdown("*Used fallback response method*")
+                        
                         response_placeholder.markdown(fallback_response)
                         final_response = fallback_response
                     
