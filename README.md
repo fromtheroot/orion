@@ -180,8 +180,6 @@ This project is open source and available under the MIT License.
 
 ---
 
-**Happy Chatting! 🚀** 
-
 ## 📝 TODO
 
 - [ ] Re-do UI
