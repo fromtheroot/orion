@@ -1,11 +1,11 @@
-# Orion - Hybrid Reasoning
+# Orion
 ## Pydantic AI Web UI Agent App
 
 A modern web-based chat assistant built with **Pydantic AI**, **Ollama**, and **Streamlit**. This application provides a clean, user-friendly interface to interact with AI models running locally via Ollama.
 
 ## ✨ Features
 
-- 🦙 **Local AI Model**: Uses Ollama with qwen3:14b model
+- 🦙 **Local AI Model**: Uses Ollama with qwen3:14b model for Hybrid Reasoning
 - 🔧 **Pydantic AI Framework**: Type-safe agent interactions
 - 🌊 **Web Interface**: Beautiful Streamlit-based chat UI
 - 💬 **Multi-turn Conversations**: Maintains conversation history
