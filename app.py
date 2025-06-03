@@ -1169,9 +1169,13 @@ This helps users understand your reasoning process."""
                     with response_container:
                         response_placeholder = st.empty()
                     
-                    # Current expander state tracking
+                    # Initialize thinking expander immediately
                     current_expander_title = f"{spinner_chars[0]} Thinking..."
-                    thinking_placeholder = None
+                    with thinking_expander_container.container():
+                        thinking_expander = st.expander(current_expander_title, expanded=True)
+                        thinking_placeholder = thinking_expander.empty()
+                        thinking_placeholder.markdown("*Processing your request...*")
+                    
                     update_frequency = 0  # Update title every few chunks to reduce flicker
                     
                     # Get streaming response with thinking separation
@@ -1201,12 +1205,6 @@ This helps users understand your reasoning process."""
                                 elif thinking_placeholder:
                                     # Just update content without changing title
                                     thinking_placeholder.markdown(thinking_content + "▌")
-                                elif thinking_content.strip():
-                                    # Initialize thinking expander if it doesn't exist yet
-                                    with thinking_expander_container.container():
-                                        thinking_expander = st.expander(current_expander_title, expanded=True)
-                                        thinking_placeholder = thinking_expander.empty()
-                                        thinking_placeholder.markdown(thinking_content + "▌")
                                 
                             elif chunk_type == 'thinking_complete':
                                 thinking_active = False
@@ -1248,6 +1246,16 @@ This helps users understand your reasoning process."""
                             elif chunk_type == 'error':
                                 response_placeholder.error(chunk_content)
                                 return chunk_content
+                        
+                        # Final check - if thinking is still active, close it
+                        if thinking_active:
+                            with thinking_expander_container.container():
+                                thinking_expander = st.expander("💭 View thinking process", expanded=False)
+                                thinking_placeholder = thinking_expander.empty()
+                                if thinking_content.strip():
+                                    thinking_placeholder.markdown(thinking_content)
+                                else:
+                                    thinking_placeholder.markdown("*The AI processed your request directly without explicit thinking steps*")
                         
                         return response_content
                     
