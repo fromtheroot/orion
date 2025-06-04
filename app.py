@@ -684,8 +684,8 @@ def main():
     
     # Page configuration
     st.set_page_config(
-        page_title="🤖 Pydantic AI Chat Assistant",
-        page_icon="🤖",
+        page_title="🌟 Orion - AI Chat Assistant",
+        page_icon="🌟",
         layout="wide",
         initial_sidebar_state="collapsed"
     )
@@ -693,42 +693,26 @@ def main():
     # Initialize session state
     initialize_session_state()
     
-    # Custom CSS
+    # Spotify-inspired dark theme compatible CSS
     st.markdown("""
     <style>
     .main {
         padding-top: 1rem;
     }
-    .stChat > div {
-        background-color: #f8f9fa;
-        border-radius: 10px;
-        padding: 1rem;
-        margin-bottom: 1rem;
-    }
-    .user-message {
-        background-color: #e3f2fd !important;
-        border-left: 4px solid #2196f3;
-    }
-    .assistant-message {
-        background-color: #f3e5f5 !important;
-        border-left: 4px solid #9c27b0;
-    }
-    .stButton > button {
-        background-color: #1976d2;
-        color: white;
-        border-radius: 8px;
-        border: none;
-        padding: 0.5rem 1rem;
-        transition: all 0.3s;
-    }
-    .stButton > button:hover {
-        background-color: #1565c0;
-        transform: translateY(-1px);
+    
+    /* Fixed header styling */
+    .st-emotion-cache-8fdueu h3 {
+        font-size: 1.75rem;
+        padding: 0.75rem 0px 1rem;
+        position: fixed;
+        top: 12px;
+        z-index: 1000000000000000000;
+        font-weight: 300;
     }
     
-    /* Thinking UI Styles */
+    /* Thinking UI Styles - Spotify green theme */
     .thinking-status {
-        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(90deg, #1DB954 0%, #1ED760 100%);
         color: white;
         padding: 8px 12px;
         border-radius: 20px;
@@ -738,21 +722,18 @@ def main():
     }
     
     .thinking-expander {
-        border: 1px solid #e0e4e7;
+        border: 1px solid #282828;
         border-radius: 8px;
         margin-bottom: 15px;
-        background-color: #f8f9fa;
     }
     
     .thinking-content {
         font-family: 'Courier New', monospace;
         font-size: 13px;
         line-height: 1.4;
-        color: #495057;
-        background-color: #f8f9fa;
         padding: 10px;
         border-radius: 5px;
-        border-left: 3px solid #667eea;
+        border-left: 3px solid #1DB954;
     }
     
     /* Response content styling */
@@ -761,13 +742,13 @@ def main():
         line-height: 1.6;
     }
     
-    /* Spinner Animation */
+    /* Spinner Animation with Spotify green */
     .spinner {
         display: inline-block;
         width: 16px;
         height: 16px;
-        border: 2px solid #f3f3f3;
-        border-top: 2px solid #667eea;
+        border: 2px solid #282828;
+        border-top: 2px solid #1DB954;
         border-radius: 50%;
         animation: spin 1s linear infinite;
         margin-right: 8px;
@@ -791,6 +772,7 @@ def main():
         animation: dots 1.2s linear infinite;
         font-family: monospace;
         font-size: 16px;
+        color: #1DB954;
     }
     
     @keyframes dots {
@@ -810,7 +792,7 @@ def main():
     """, unsafe_allow_html=True)
     
     # Header
-    st.title("Orion")
+    st.markdown("### Orion")
     
     # Sidebar
     with st.sidebar:
